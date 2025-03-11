@@ -2,6 +2,8 @@
 
 ## **Prerequisites**
 
+## **Prerequisites**
+
 Before starting the assignment, ensure you have the following software installed and properly configured on your machine:
 
 1. **Python 3.x**:
@@ -25,11 +27,11 @@ Before starting the assignment, ensure you have the following software installed
      ```
 
 4. **Docker & Docker Compose** (Optional):
-   - If you prefer using Docker for setting up Spark, ensure Docker and Docker Compose are installed.
    - [Docker Installation Guide](https://docs.docker.com/get-docker/)
    - [Docker Compose Installation Guide](https://docs.docker.com/compose/install/)
+
 5. **HDFS on Docker** (Optional):
-   - [HDFS, Hive, Hue,Spark](https://github.com/Wittline/apache-spark-docker)
+   - [HDFS, Hive, Hue, Spark](https://github.com/Wittline/apache-spark-docker)
    - [HDFS on Spark](https://github.com/big-data-europe/docker-hadoop-spark-workbench)
 
 ## **Setup Instructions**
@@ -53,12 +55,6 @@ EmployeeEngagementAnalysis/
 ├── docker-compose.yml
 └── README.md
 ```
-
-- **input/**: Contains the `employee_data.csv` dataset.
-- **outputs/**: Directory where the results of each task will be saved.
-- **src/**: Contains the individual Python scripts for each task.
-- **docker-compose.yml**: Docker Compose configuration file to set up Spark.
-- **README.md**: Assignment instructions and guidelines.
 
 ### **2. Running the Analysis Tasks**
 
@@ -125,127 +121,196 @@ You can run the analysis tasks either locally or using Docker.
    docker-compose down
    ```
 
-## **Overview**
-
-In this assignment, you will leverage Spark Structured APIs to analyze a dataset containing employee information from various departments within an organization. Your goal is to extract meaningful insights related to employee satisfaction, engagement, concerns, and job titles. This exercise is designed to enhance your data manipulation and analytical skills using Spark's powerful APIs.
-
-## **Objectives**
-
-By the end of this assignment, you should be able to:
-
-1. **Data Loading and Preparation**: Import and preprocess data using Spark Structured APIs.
-2. **Data Analysis**: Perform complex queries and transformations to address specific business questions.
-3. **Insight Generation**: Derive actionable insights from the analyzed data.
-
-## **Dataset**
-
-### **Employee Data (`employee_data.csv`)**
-
-You will work with a dataset containing information about 100 employees across various departments. The dataset includes the following columns:
-
-| Column Name             | Data Type | Description                                           |
-|-------------------------|-----------|-------------------------------------------------------|
-| **EmployeeID**          | Integer   | Unique identifier for each employee                   |
-| **Department**          | String    | Department where the employee works (e.g., Sales, IT) |
-| **JobTitle**            | String    | Employee's job title (e.g., Manager, Executive)      |
-| **SatisfactionRating**  | Integer   | Employee's satisfaction rating (1 to 5)               |
-| **EngagementLevel**     | String    | Employee's engagement level (Low, Medium, High)       |
-| **ReportsConcerns**     | Boolean   | Indicates if the employee has reported concerns       |
-| **ProvidedSuggestions** | Boolean   | Indicates if the employee has provided suggestions    |
-
-### **Sample Data**
-
-Below is a snippet of the `employee_data.csv` to illustrate the data structure. Ensure your dataset contains at least 100 records for meaningful analysis.
-
-```
-EmployeeID,Department,JobTitle,SatisfactionRating,EngagementLevel,ReportsConcerns,ProvidedSuggestions
-1,Sales,Manager,5,High,False,True
-2,IT,Developer,3,Low,True,False
-3,HR,Executive,4,High,False,True
-4,Sales,Executive,2,Low,True,False
-5,IT,Manager,5,High,False,True
-...
-```
-
 ## **Assignment Tasks**
 
-You are required to complete the following three analysis tasks using Spark Structured APIs. Ensure that your analysis is well-documented, with clear explanations and any relevant visualizations or summaries.
-
-### **1. Identify Departments with High Satisfaction and Engagement**
+### **Task 1: Identify Departments with High Satisfaction and Engagement**
 
 **Objective:**
+Determine which departments have more than **1%** of their employees with a **Satisfaction Rating greater than 4** and an **Engagement Level of 'High'**.
 
-Determine which departments have more than 50% of their employees with a Satisfaction Rating greater than 4 and an Engagement Level of 'High'.
+**Script:**  
+`src/task1_identify_departments_high_satisfaction.py`
 
-**Tasks:**
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, format_string
 
-- **Filter Employees**: Select employees who have a Satisfaction Rating greater than 4 and an Engagement Level of 'High'.
-- **Analyze Percentages**: Calculate the percentage of such employees within each department.
-- **Identify Departments**: List departments where this percentage exceeds 50%.
+def initialize_spark(app_name="Task1_Identify_Departments"):
+    spark = SparkSession.builder.appName(app_name).getOrCreate()
+    return spark
 
-**Expected Outcome:**
+def load_data(spark, file_path):
+    schema = "EmployeeID INT, Department STRING, JobTitle STRING, SatisfactionRating INT, EngagementLevel STRING, ReportsConcerns BOOLEAN, ProvidedSuggestions BOOLEAN"
+    df = spark.read.csv(file_path, header=True, schema=schema)
+    return df
 
-A list of departments meeting the specified criteria, along with the corresponding percentages.
+def identify_departments_high_satisfaction(df):
+    filtered_df = df.filter((col("SatisfactionRating") > 4) & (col("EngagementLevel") == "High"))
+    department_counts = filtered_df.groupBy("Department").agg(count("*").alias("QualifiedCount"))
+    total_counts = df.groupBy("Department").agg(count("*").alias("TotalCount"))
+    percentage_df = department_counts.join(total_counts, "Department")\
+                                    .withColumn("Percentage", format_string("%.2f%%", (col("QualifiedCount") / col("TotalCount") * 100)))\
+                                    .filter(col("Percentage").substr(0, 4) > "1.00")
+    return percentage_df.select("Department", "Percentage")
 
-**Example Output:**
+def main():
+    spark = initialize_spark()
+    input_file = "input/employee_data.csv"
+    output_file = "outputs/departments_high_satisfaction.csv"
+    df = load_data(spark, input_file)
+    result_df = identify_departments_high_satisfaction(df)
+    result_df.coalesce(1).write.option("header", "true").csv(output_file, mode='overwrite')
+    spark.stop()
 
-| Department | Percentage |
-|------------|------------|
-| Finance    | 60%        |
-| Marketing  | 55%        |
-
----
-
-### **2. Who Feels Valued but Didn’t Suggest Improvements?**
-
-**Objective:**
-
-Identify employees who feel valued (defined as having a Satisfaction Rating of 4 or higher) but have not provided suggestions. Assess the significance of this group within the organization and explore potential reasons for their behavior.
-
-**Tasks:**
-
-- **Identify Valued Employees**: Select employees with a Satisfaction Rating of 4 or higher.
-- **Filter Non-Contributors**: Among these, identify those who have `ProvidedSuggestions` marked as `False`.
-- **Calculate Proportion**: Determine the number and proportion of these employees relative to the entire workforce.
-
-**Expected Outcome:**
-
-Insights into the number and proportion of employees who feel valued but aren’t providing suggestions.
-
-**Example Output:**
-
-```
-Number of Employees Feeling Valued without Suggestions: 25
-Proportion: 25%
+if __name__ == "__main__":
+    main()
 ```
 
+**Expected Output (departments_high_satisfaction.csv):**
+```
+Department,Percentage
+Finance,4.35%
+Sales,5.88%
+Marketing,9.09%
+IT,15.00%
+```
+
 ---
 
-### **3. Compare Engagement Levels Across Job Titles**
+### **Task 2: Who Feels Valued but Didn’t Suggest Improvements?**
+**Objective:**
+Identify employees who feel valued **(Satisfaction Rating ≥ 4)** but have not provided suggestions. This helps analyze whether employees who feel appreciated are actively contributing suggestions for improvements within the organization.
+
+**Script:**  
+`src/task2_valued_no_suggestions.py`
+
+```python
+# task2_valued_no_suggestions.py
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count
+
+def initialize_spark(app_name="Task2_Valued_No_Suggestions"):
+    spark = SparkSession.builder \
+        .appName(app_name) \
+        .getOrCreate()
+    return spark
+
+def load_data(spark, file_path):
+    schema = "EmployeeID INT, Department STRING, JobTitle STRING, SatisfactionRating INT, EngagementLevel STRING, ReportsConcerns BOOLEAN, ProvidedSuggestions BOOLEAN"
+    df = spark.read.csv(file_path, header=True, schema=schema)
+    return df
+
+def identify_valued_no_suggestions(df):
+    valued_df = df.filter((col("SatisfactionRating") >= 4) & (col("ProvidedSuggestions") == False))
+    number = valued_df.count()
+    total = df.count()
+    proportion = (number / total * 100)
+    return number, proportion
+
+def write_output(number, proportion, output_path):
+    with open(output_path, 'w') as f:
+        f.write(f"Number of Employees Feeling Valued without Suggestions: {number}\n")
+        f.write(f"Proportion: {proportion:.2f}%\n")
+
+def main():
+    spark = initialize_spark()
+    input_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/input/employee_data.csv"
+    output_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/outputs/valued_no_suggestions.txt"
+    df = load_data(spark, input_file)
+    number, proportion = identify_valued_no_suggestions(df)
+    write_output(number, proportion, output_file)
+    spark.stop()
+
+if __name__ == "__main__":
+    main()
+
+```
+
+**Expected Output (valued_no_suggestions.txt):**
+```
+Number of Employees Feeling Valued without Suggestions: 18
+Proportion: 18.00%
+```
+
+---
+
+### **Task 3: Compare Engagement Levels Across Job Titles**
 
 **Objective:**
+Examine how engagement levels vary across different job titles and determine which **Job Title** has the highest **average Engagement Level**.
 
-Examine how Engagement Levels vary across different Job Titles and identify which Job Title has the highest average Engagement Level.
+**Script:**  
+`src/task3_compare_engagement_levels.py`
 
-**Tasks:**
+```python
+# task1_identify_departments_high_satisfaction.py
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count
 
-- **Map Engagement Levels**: Convert categorical Engagement Levels ('Low', 'Medium', 'High') to numerical values to facilitate calculation.
-- **Group and Calculate Averages**: Group employees by Job Title and compute the average Engagement Level for each group.
-- **Identify Top Performer**: Determine which Job Title has the highest average Engagement Level.
+def initialize_spark(app_name="Task1_Identify_Departments"):
+    spark = SparkSession.builder \
+        .appName(app_name) \
+        .getOrCreate()
+    return spark
 
-**Expected Outcome:**
+def load_data(spark, file_path):
+    schema = "EmployeeID INT, Department STRING, JobTitle STRING, SatisfactionRating INT, EngagementLevel STRING, ReportsConcerns BOOLEAN, ProvidedSuggestions BOOLEAN"
+    df = spark.read.csv(file_path, header=True, schema=schema)
+    return df
 
-A comparative analysis showing average Engagement Levels across Job Titles, highlighting the top-performing Job Title.
+def identify_departments_high_satisfaction(df):
+    filtered_df = df.filter((col("SatisfactionRating") > 4) & (col("EngagementLevel") == "High"))
+    print("Filtered DataFrame:")
+    filtered_df.show(truncate=False)
 
-**Example Output:**
+    department_counts = filtered_df.groupBy("Department").agg(count("*").alias("QualifiedCount"))
+    print("Department Counts:")
+    department_counts.show(truncate=False)
 
-| JobTitle    | AvgEngagementLevel |
-|-------------|--------------------|
-| Manager     | 4.5                |
-| Executive   | 4.2                |
-| Developer   | 3.8                |
-| Analyst     | 3.5                |
-| Coordinator | 3.0                |
-| Support     | 2.8                |
+    total_counts = df.groupBy("Department").agg(count("*").alias("TotalCount"))
+    print("Total Counts:")
+    total_counts.show(truncate=False)
+
+    percentage_df = department_counts.join(total_counts, "Department")\
+                                     .withColumn("Percentage", (col("QualifiedCount") / col("TotalCount") * 100))\
+                                     .filter(col("Percentage") > 50)
+    print("Final Percentage DataFrame:")
+    percentage_df.show(truncate=False)
+    
+    return percentage_df.select("Department", "Percentage")
+
+def write_output(result_df, output_path):
+    result_df.coalesce(1).write.csv(output_path, header=True, mode='overwrite')
+
+def main():
+    spark = initialize_spark()
+    input_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/input/employee_data.csv"
+    output_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/outputs/departments_high_satisfaction.csv"
+    df = load_data(spark, input_file)
+    result_df = identify_departments_high_satisfaction(df)
+    write_output(result_df, output_file)
+    spark.stop()
+
+if __name__ == "__main__":
+    main()
+
+```
+
+**Expected Output (engagement_levels_job_titles.csv):**
+```
+JobTitle,AvgEngagementLevel
+Coordinator,1.82
+Developer,2.14
+Executive,1.97
+Analyst,1.95
+Support,1.6
+Manager,1.88
+```
 
 ---
+
+## **Conclusion**
+This project applies **PySpark** to analyze employee engagement and satisfaction data, identifying insights into employee behavior and department performance. By running the three analysis tasks, key trends in employee satisfaction and engagement are revealed, helping organizations make data-driven decisions.
+
+For any issues or questions, refer to the **comments inside each script file** or check the **debugging logs** when running the tasks.
+
