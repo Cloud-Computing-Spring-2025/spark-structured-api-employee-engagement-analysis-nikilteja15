@@ -243,11 +243,11 @@ Examine how engagement levels vary across different job titles and determine whi
 `src/task3_compare_engagement_levels.py`
 
 ```python
-# task1_identify_departments_high_satisfaction.py
+# task3_compare_engagement_levels.py
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count
+from pyspark.sql.functions import col, when, avg, round as spark_round
 
-def initialize_spark(app_name="Task1_Identify_Departments"):
+def initialize_spark(app_name="Task3_Compare_Engagement_Levels"):
     spark = SparkSession.builder \
         .appName(app_name) \
         .getOrCreate()
@@ -258,26 +258,18 @@ def load_data(spark, file_path):
     df = spark.read.csv(file_path, header=True, schema=schema)
     return df
 
-def identify_departments_high_satisfaction(df):
-    filtered_df = df.filter((col("SatisfactionRating") > 4) & (col("EngagementLevel") == "High"))
-    print("Filtered DataFrame:")
-    filtered_df.show(truncate=False)
+def map_engagement_level(df):
+    mapping_expr = when(col("EngagementLevel") == "Low", 1)\
+                    .when(col("EngagementLevel") == "Medium", 2)\
+                    .when(col("EngagementLevel") == "High", 3)\
+                    .otherwise(0)
+    return df.withColumn("EngagementScore", mapping_expr)
 
-    department_counts = filtered_df.groupBy("Department").agg(count("*").alias("QualifiedCount"))
-    print("Department Counts:")
-    department_counts.show(truncate=False)
-
-    total_counts = df.groupBy("Department").agg(count("*").alias("TotalCount"))
-    print("Total Counts:")
-    total_counts.show(truncate=False)
-
-    percentage_df = department_counts.join(total_counts, "Department")\
-                                     .withColumn("Percentage", (col("QualifiedCount") / col("TotalCount") * 100))\
-                                     .filter(col("Percentage") > 50)
-    print("Final Percentage DataFrame:")
-    percentage_df.show(truncate=False)
-    
-    return percentage_df.select("Department", "Percentage")
+def compare_engagement_levels(df):
+    df_mapped = map_engagement_level(df)
+    result_df = df_mapped.groupBy("JobTitle")\
+                         .agg(spark_round(avg("EngagementScore"), 2).alias("AvgEngagementLevel"))
+    return result_df
 
 def write_output(result_df, output_path):
     result_df.coalesce(1).write.csv(output_path, header=True, mode='overwrite')
@@ -285,9 +277,9 @@ def write_output(result_df, output_path):
 def main():
     spark = initialize_spark()
     input_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/input/employee_data.csv"
-    output_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/outputs/departments_high_satisfaction.csv"
+    output_file = "/workspaces/spark-structured-api-employee-engagement-analysis-nikilteja15/outputs/engagement_levels_job_titles.csv"
     df = load_data(spark, input_file)
-    result_df = identify_departments_high_satisfaction(df)
+    result_df = compare_engagement_levels(df)
     write_output(result_df, output_file)
     spark.stop()
 
